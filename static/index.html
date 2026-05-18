@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI PM Agent - 老钱</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-sidebar: #0f1629;
+  --bg-input: #1c2541;
+  --bg-bubble-user: #2563eb;
+  --bg-bubble-ai: #1e293b;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --border: #2d3748;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --pm-color: #8b5cf6;
+  --dev-color: #06b6d4;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 280px;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar-header {
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header .avatar {
+  width: 48px; height: 48px;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; margin-bottom: 10px;
+}
+
+.sidebar-header h2 { font-size: 18px; font-weight: 600; }
+.sidebar-header p { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+.sidebar-body { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+.section-label {
+  font-size: 11px; text-transform: uppercase;
+  color: var(--text-secondary); letter-spacing: 0.5px; margin-top: 8px;
+}
+
+.mode-toggles { display: flex; gap: 8px; }
+
+.mode-btn {
+  flex: 1; padding: 10px 12px; border: 2px solid var(--border);
+  border-radius: 8px; background: transparent; color: var(--text-secondary);
+  cursor: pointer; font-size: 13px; font-weight: 500;
+  transition: all 0.2s; text-align: center;
+}
+
+.mode-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.mode-btn.active.pm-mode { border-color: var(--pm-color); background: rgba(139, 92, 246, 0.15); color: var(--pm-color); }
+.mode-btn.active.dev-mode { border-color: var(--dev-color); background: rgba(6, 182, 212, 0.15); color: var(--dev-color); }
+
+.project-input {
+  width: 100%; padding: 10px 12px; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);
+  font-size: 13px; outline: none; transition: border-color 0.2s;
+}
+.project-input:focus { border-color: var(--accent); }
+.project-input::placeholder { color: var(--text-secondary); }
+
+.info-card {
+  background: var(--bg-secondary); border-radius: 8px; padding: 12px;
+  border: 1px solid var(--border);
+}
+.info-card .label { font-size: 11px; color: var(--text-secondary); }
+.info-card .value { font-size: 14px; margin-top: 4px; font-weight: 500; }
+
+.ws-status {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: auto;
+}
+.ws-status .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--error); transition: background 0.3s;
+}
+.ws-status .dot.connected { background: var(--success); }
+
+.clear-btn {
+  width: 100%; padding: 10px; background: transparent;
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-secondary); cursor: pointer; font-size: 13px;
+  transition: all 0.2s;
+}
+.clear-btn:hover { border-color: var(--error); color: var(--error); }
+
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.header {
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-secondary);
+}
+
+.header-title { font-size: 15px; font-weight: 600; }
+.header-badge {
+  font-size: 11px; padding: 4px 10px; border-radius: 20px;
+  font-weight: 500;
+}
+.header-badge.pm-mode { background: rgba(139, 92, 246, 0.2); color: var(--pm-color); }
+.header-badge.dev-mode { background: rgba(6, 182, 212, 0.2); color: var(--dev-color); }
+
+.chat-area {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.message { display: flex; gap: 12px; max-width: 85%; animation: fadeIn 0.3s ease; }
+.message.user { align-self: flex-end; flex-direction: row-reverse; }
+.message.ai { align-self: flex-start; }
+
+.message-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+.message.user .message-avatar { background: var(--bg-bubble-user); }
+.message.ai .message-avatar { background: linear-gradient(135deg, var(--accent), #7c3aed); }
+
+.message-body {
+  padding: 12px 16px; border-radius: 12px;
+  font-size: 14px; line-height: 1.65;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.message.user .message-body { background: var(--bg-bubble-user); border-bottom-right-radius: 4px; }
+.message.ai .message-body { background: var(--bg-bubble-ai); border-bottom-left-radius: 4px; }
+
+.message-body h1, .message-body h2, .message-body h3 {
+  font-size: 1.1em; margin: 8px 0 4px;
+}
+.message-body h2 { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.message-body ul, .message-body ol { margin: 6px 0; padding-left: 20px; }
+.message-body li { margin: 2px 0; }
+
+.message-body pre {
+  background: #0d1117; border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px; margin: 8px 0;
+  overflow-x: auto; font-size: 12px; line-height: 1.5;
+  position: relative;
+}
+.message-body pre code { background: none; padding: 0; font-size: inherit; }
+.message-body code {
+  background: rgba(255,255,255,0.1); padding: 2px 6px;
+  border-radius: 4px; font-size: 0.9em;
+}
+
+.uml-container { margin: 12px 0; text-align: center; }
+.uml-container img {
+  max-width: 100%; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; padding: 12px;
+}
+
+.uml-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px;
+}
+.uml-actions button {
+  padding: 4px 10px; font-size: 11px; background: transparent;
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-secondary); cursor: pointer;
+}
+.uml-actions button:hover { border-color: var(--accent); color: var(--accent); }
+
+.input-area {
+  padding: 16px 20px; border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.input-row { display: flex; gap: 10px; }
+
+.input-row input {
+  flex: 1; padding: 12px 16px; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text-primary); font-size: 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.input-row input:focus { border-color: var(--accent); }
+.input-row input::placeholder { color: var(--text-secondary); }
+
+.input-row button {
+  padding: 12px 24px; background: var(--accent); border: none;
+  border-radius: 10px; color: #fff; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background 0.2s;
+}
+.input-row button:hover { background: var(--accent-hover); }
+.input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hint-bar {
+  display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;
+}
+.hint {
+  font-size: 11px; color: var(--text-secondary); padding: 3px 8px;
+  background: var(--bg-input); border-radius: 4px;
+  cursor: pointer; transition: all 0.2s;
+}
+.hint:hover { color: var(--accent); }
+
+.loading-dots { display: flex; gap: 4px; padding: 4px 0; }
+.loading-dots span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-secondary);
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+.typing-indicator { align-self: flex-start; font-size: 13px; color: var(--text-secondary); padding: 8px 16px; }
+
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .message { max-width: 95%; }
+  .input-row button { padding: 12px 16px; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="avatar">💼</div>
+    <h2>老钱</h2>
+    <p>AI 产品经理 · v1.0</p>
+  </div>
+  <div class="sidebar-body">
+    <span class="section-label">工作模式</span>
+    <div class="mode-toggles">
+      <button class="mode-btn active pm-mode" onclick="switchMode('pm')" id="btn-pm">🛋 PM 模式</button>
+      <button class="mode-btn" onclick="switchMode('dev')" id="btn-dev">⚙️ Dev 模式</button>
+    </div>
+
+    <span class="section-label">当前项目</span>
+    <input type="text" class="project-input" placeholder="输入项目名创建或切换..."
+           id="projectInput" onkeydown="if(event.key==='Enter')createProject()">
+
+    <div class="info-card" id="projectCard">
+      <div class="label">项目名称</div>
+      <div class="value" id="projectName">未选择</div>
+    </div>
+
+    <div class="info-card">
+      <div class="label">连线状态</div>
+      <div class="ws-status">
+        <span class="dot" id="wsDot"></span>
+        <span id="wsText">未连接</span>
+      </div>
+    </div>
+
+    <button class="clear-btn" onclick="clearChat()">🗑 清空对话</button>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="header">
+    <span class="header-title" id="headerTitle">PM Mode · 产品定义</span>
+    <span class="header-badge pm-mode" id="headerBadge">PM</span>
+  </div>
+
+  <div class="chat-area" id="chatArea">
+    <div class="message ai">
+      <div class="message-avatar">💼</div>
+      <div class="message-body">
+        👋 你好！我是<b>老钱</b>，你的 AI 产品经理。<br><br>
+        我会先问清楚你的需求，再帮你生成<strong>用例图</strong>、<strong>流程图</strong>和
+        <strong>PRD 文档</strong>。<br><br>
+        试试跟我说说你的产品想法？
+      </div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <input type="text" id="msgInput" placeholder="说说你的产品想法..." 
+             onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMessage()}">
+      <button id="sendBtn" onclick="sendMessage()">发送</button>
+    </div>
+    <div class="hint-bar">
+      <span class="hint" onclick="quickSend('帮我分析一个需求')">🔍 分析需求</span>
+      <span class="hint" onclick="quickSend('帮我画一张用例图')">📊 生成用例图</span>
+      <span class="hint" onclick="quickSend('帮我画一张流程图')">🔄 生成流程图</span>
+      <span class="hint" onclick="quickSend('帮我写一份PRD')">📝 写 PRD</span>
+    </div>
+  </div>
+</main>
+
+<script>
+const WS_URL = `ws://${location.host}/ws`;
+let ws = null;
+let currentMode = 'pm';
+let reconnectTimer = null;
+
+marked.setOptions({ breaks: true, gfm: true });
+
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  updateWsStatus('connecting');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    updateWsStatus('connected');
+    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+  };
+
+  ws.onmessage = (event) => {
+    removeTyping();
+    appendMessage('ai', event.data);
+  };
+
+  ws.onclose = () => {
+    updateWsStatus('disconnected');
+    if (!reconnectTimer) {
+      reconnectTimer = setInterval(() => {
+        updateWsStatus('connecting');
+        ws = new WebSocket(WS_URL);
+      }, 3000);
+    }
+  };
+
+  ws.onerror = () => { updateWsStatus('disconnected'); };
+}
+
+function updateWsStatus(status) {
+  const dot = document.getElementById('wsDot');
+  const text = document.getElementById('wsText');
+  dot.classList.remove('connected');
+  switch (status) {
+    case 'connected':
+      dot.classList.add('connected');
+      text.textContent = '已连接';
+      document.getElementById('sendBtn').disabled = false;
+      break;
+    case 'connecting':
+      text.textContent = '连接中...';
+      document.getElementById('sendBtn').disabled = true;
+      break;
+    case 'disconnected':
+      text.textContent = '断开，重连中...';
+      document.getElementById('sendBtn').disabled = true;
+      break;
+  }
+}
+
+function sendMessage() {
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    appendMessage('ai', '⚠️ WebSocket 未连接，正在重连中，请稍候再试...');
+    connect();
+    return;
+  }
+
+  appendMessage('user', text);
+  showTyping();
+  ws.send(text);
+  input.value = '';
+  input.focus();
+}
+
+function quickSend(text) {
+  document.getElementById('msgInput').value = text;
+  sendMessage();
+}
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-pm').className = mode === 'pm' ? 'mode-btn active pm-mode' : 'mode-btn';
+  document.getElementById('btn-dev').className = mode === 'dev' ? 'mode-btn active dev-mode' : 'mode-btn';
+
+  const badge = document.getElementById('headerBadge');
+  const title = document.getElementById('headerTitle');
+  if (mode === 'pm') {
+    badge.textContent = 'PM'; badge.className = 'header-badge pm-mode';
+    title.textContent = 'PM Mode · 产品定义';
+  } else {
+    badge.textContent = 'DEV'; badge.className = 'header-badge dev-mode';
+    title.textContent = 'Dev Mode · 开发沟通';
+  }
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send('/' + mode);
+    showTyping();
+  }
+}
+
+function createProject() {
+  const input = document.getElementById('projectInput');
+  const name = input.value.trim();
+  if (!name) return;
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send('/project ' + name);
+    showTyping();
+    document.getElementById('projectName').textContent = name;
+    input.value = '';
+  }
+}
+
+function showTyping() {
+  const area = document.getElementById('chatArea');
+  const typing = document.createElement('div');
+  typing.className = 'typing-indicator';
+  typing.id = 'typingIndicator';
+  typing.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div> 老钱正在思考...';
+  area.appendChild(typing);
+  scrollBottom();
+}
+
+function removeTyping() {
+  const typing = document.getElementById('typingIndicator');
+  if (typing) typing.remove();
+}
+
+function appendMessage(role, text) {
+  const area = document.getElementById('chatArea');
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+  div.innerHTML = `
+    <div class="message-avatar">${role === 'user' ? '🧑' : '💼'}</div>
+    <div class="message-body">${role === 'ai' ? renderContent(text) : escapeHtml(text)}</div>
+  `;
+  area.appendChild(div);
+  scrollBottom();
+
+  if (role === 'ai') {
+    renderUmlBlocks(div);
+  }
+}
+
+function renderContent(text) {
+  if (text.includes('@startuml') && text.includes('@enduml')) {
+    return escapeHtml(text);
+  }
+  return marked.parse(text);
+}
+
+function renderUmlBlocks(container) {
+  const body = container.querySelector('.message-body');
+  const text = body.textContent;
+
+  const regex = /@startuml([\s\S]*?)@enduml/g;
+  const matches = [...text.matchAll(regex)];
+  if (matches.length === 0) return;
+
+  const html = body.innerHTML;
+  let newHtml = html;
+  matches.forEach(match => {
+    const fullCode = match[0];
+    const encoded = encodePlantUml(fullCode);
+    const imgUrl = `https://www.plantuml.com/plantuml/svg/${encoded}`;
+    const escaped = escapeHtml(fullCode);
+    const umlBlock = `
+      <div class="uml-container">
+        <img src="${imgUrl}" alt="PlantUML Diagram" loading="lazy"
+             onerror="this.parentElement.querySelector('.uml-fallback').style.display='block';this.style.display='none'">
+        <pre class="uml-fallback" style="display:none">${escaped}</pre>
+        <div class="uml-actions">
+          <button onclick="copyUml(this, \`${escaped.replace(/`/g, '\\`')}\`)">📋 复制代码</button>
+          <button onclick="window.open('${imgUrl}', '_blank')">🔗 新窗口打开</button>
+        </div>
+      </div>`;
+    newHtml = newHtml.replace(new RegExp(escapedHtmlRegex(fullCode), 'g'), umlBlock);
+  });
+
+  body.innerHTML = newHtml;
+}
+
+function escapedHtmlRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function encodePlantUml(code) {
+  let encoded = '';
+  const utf8 = unescape(encodeURIComponent(code));
+  for (let i = 0; i < utf8.length; i++) {
+    const c = utf8.charCodeAt(i);
+    if (c >= 0x20 && c <= 0x7E) {
+      encoded += String.fromCharCode(c);
+    } else {
+      encoded += '\\u' + ('0000' + c.toString(16)).slice(-4);
+    }
+  }
+  return btoa(encoded).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function copyUml(btn, code) {
+  const decoded = code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+  navigator.clipboard.writeText(decoded).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ 已复制';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function clearChat() {
+  const area = document.getElementById('chatArea');
+  area.innerHTML = `
+    <div class="message ai">
+      <div class="message-avatar">💼</div>
+      <div class="message-body">对话已清空。有什么新想法想聊？</div>
+    </div>`;
+}
+
+function scrollBottom() {
+  const area = document.getElementById('chatArea');
+  requestAnimationFrame(() => { area.scrollTop = area.scrollHeight; });
+}
+
+document.getElementById('msgInput').addEventListener('input', () => {
+  document.getElementById('sendBtn').disabled = false;
+});
+
+connect();
+</script>
+</body>
+</html>

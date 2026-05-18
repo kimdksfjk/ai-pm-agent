@@ -1,5 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from agent.pm_agent import PMAgent
@@ -25,8 +27,8 @@ class ModeSwitchRequest(BaseModel):
     client_id: str = "default"
 
 
-@app.get("/")
-def read_root():
+@app.get("/api")
+def api_info():
     return {
         "service": "AI PM Agent",
         "version": "1.0.0",
@@ -37,6 +39,11 @@ def read_root():
             "chat_post": "POST /chat",
         },
     }
+
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse("static/index.html")
 
 
 @app.post("/chat")
@@ -64,11 +71,11 @@ async def websocket_endpoint(websocket: WebSocket):
     agent = get_or_create_agent(client_id)
 
     welcome = (
-        f"你好！我是「老钱」，你的 AI 产品经理。\n"
-        f"当前模式: {agent.mode.upper()}\n"
-        f"运行模式: {'Mock（配置 API Key 以启用 AI）' if agent.use_mock else 'AI 已连接'}\n"
-        f"命令: /pm 产品模式 | /dev 开发者模式 | /project 查看项目 | /project <名> 创建项目\n"
-        f"来，跟我说说你的需求吧～"
+        f"👋 你好！我是「老钱」，你的 AI 产品经理。\n\n"
+        f"**当前模式**: {agent.mode.upper()}\n"
+        f"**AI 状态**: {'✅ AI 已连接' if not agent.use_mock else '⚠️ Mock 模式'}\n\n"
+        f"命令: `/pm` 产品模式 | `/dev` 开发模式 | `/project <名>` 创建项目\n\n"
+        f"来，跟我说说你的产品想法吧～"
     )
     await websocket.send_text(welcome)
 
@@ -95,6 +102,7 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception:
             pass
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
     import uvicorn

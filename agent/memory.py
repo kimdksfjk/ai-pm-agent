@@ -15,11 +15,19 @@ class MemoryManager:
     def short_term(self) -> list[BaseMessage]:
         return self._short_term
 
-    def add_message(self, role: str, content: str):
+    def add_message(self, role: str, message):
         if role == "human":
+            content = message if isinstance(message, str) else message.content
             self._short_term.append(HumanMessage(content=content))
         else:
-            self._short_term.append(AIMessage(content=content))
+            if isinstance(message, BaseMessage):
+                preserved = AIMessage(
+                    content=message.content,
+                    additional_kwargs=getattr(message, 'additional_kwargs', {}) or {},
+                )
+            else:
+                preserved = AIMessage(content=str(message))
+            self._short_term.append(preserved)
 
         if len(self._short_term) > MAX_CHAT_HISTORY:
             self._short_term = self._short_term[-MAX_CHAT_HISTORY:]
