@@ -10,17 +10,13 @@ from agent import database
 
 
 class PMAgent:
-    def __init__(self, project_id: str | None = None):
-        self.memory = MemoryManager(project_id or "default")
-        self.project_id = project_id
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.project_id = None
+        self.memory = MemoryManager(session_id)
         self.mode = "pm"
         self.use_mock = not LLM_API_KEY
-        self._last_ai_message: AIMessage | None = None
-
-        if project_id:
-            project = database.get_project(project_id)
-            if project:
-                self.mode = project.get("mode", "pm")
+        self._last_ai_message = None
 
         if not self.use_mock:
             try:
@@ -69,38 +65,29 @@ class PMAgent:
         if user_input.strip().lower().startswith("/project "):
             return self._create_or_switch_project(user_input)
 
-        self.memory.add_message("human", user_input)
-
         if self.use_mock:
-            response = self._mock_chat(user_input)
-            self.memory.add_message("ai", response)
-        else:
-            response = self._real_chat(user_input)
-            if self._last_ai_message is not None:
-                self.memory.add_message("ai", self._last_ai_message)
-                self._last_ai_message = None
-            else:
-                self.memory.add_message("ai", response)
+            return self._mock_chat(user_input)
 
-        return response
+        return self._real_chat(user_input)
 
     def _real_chat(self, user_input: str) -> str:
         try:
             chat_history = self.memory.get_chat_history()
-            context = self.memory.get_context_for_prompt()
-
-            if context:
-                user_input = f"{context}\n\n用户当前输入: {user_input}"
 
             messages = list(chat_history) + [HumanMessage(content=user_input)]
 
             result = self.agent.invoke({"messages": messages})
             output_messages = result.get("messages", [])
-            if output_messages:
-                last_msg = output_messages[-1]
-                self._last_ai_message = last_msg
-                return last_msg.content
-            return "（Agent 未返回内容）"
+            if not output_messages:
+                return "（Agent 未返回内容）"
+
+            last_msg = output_messages[-1]
+            response_text = last_msg.content
+
+            self.memory.add_message("human", user_input)
+            self.memory.add_message("ai", response_text)
+
+            return response_text
         except Exception as e:
             return f"[系统错误] {str(e)}\n请重试或输入 /pm 或 /dev 切换模式。"
 
@@ -143,7 +130,7 @@ class PMAgent:
                 "配置 API Key 后我可以根据你的具体需求生成更完整的 PRD。"
             )
 
-        return (
+        response = (
             f"收到你的问题：「{user_input}」\n\n"
             "⚠️ 当前运行在 Mock 模式（未配置 API Key）。\n\n"
             "在 Mock 模式下我可以：\n"
@@ -153,6 +140,9 @@ class PMAgent:
             "要启用真正的 AI 对话能力，请在 .env 文件中设置 OPENAI_API_KEY。\n"
             "使用 /pm 或 /dev 可以切换模式。"
         )
+        self.memory.add_message("human", user_input)
+        self.memory.add_message("ai", response)
+        return response
 
     def _show_project_info(self) -> str:
         if not self.project_id:
@@ -183,14 +173,12 @@ class PMAgent:
             if p["name"] == name:
                 self.project_id = p["id"]
                 self.mode = p.get("mode", "pm")
-                self.memory = MemoryManager(p["id"])
                 self._last_ai_message = None
                 if not self.use_mock:
                     self._build_agent()
                 return f"已切换到项目: {name}（模式: {self.mode}）"
         project = database.create_project(name, "", self.mode)
         self.project_id = project["id"]
-        self.memory = MemoryManager(project["id"])
         return f"已创建项目: {name}，当前模式: {self.mode}。请描述你的需求。"
 
 

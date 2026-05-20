@@ -48,6 +48,15 @@ def _init_tables():
             plantuml_code TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS conversation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES project(id)
+        );
     """)
     conn.commit()
 
@@ -140,3 +149,28 @@ def list_diagrams(project_id: str) -> list[dict]:
         (project_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def save_conversation_message(project_id: str, role: str, content: str):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO conversation (project_id, role, content) VALUES (?, ?, ?)",
+        (project_id, role, content),
+    )
+    conn.commit()
+
+
+def load_conversation(project_id: str, limit: int = 30) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT role, content FROM conversation WHERE project_id = ? "
+        "ORDER BY id DESC LIMIT ?",
+        (project_id, limit),
+    ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
+def clear_conversation(project_id: str):
+    conn = get_connection()
+    conn.execute("DELETE FROM conversation WHERE project_id = ?", (project_id,))
+    conn.commit()

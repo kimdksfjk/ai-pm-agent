@@ -300,7 +300,7 @@ body {
 
   <div class="input-area">
     <div class="input-row">
-      <input type="text" id="msgInput" placeholder="说说你的产品想法..." 
+      <input type="text" id="msgInput" placeholder="说说你的产品想法..."
              onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMessage()}">
       <button id="sendBtn" onclick="sendMessage()">发送</button>
     </div>
@@ -314,44 +314,81 @@ body {
 </main>
 
 <script>
-const WS_URL = `ws://${location.host}/ws`;
+var sessionId = localStorage.getItem('pm_session_id');
+if (!sessionId) {
+  sessionId = 'sess_' + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem('pm_session_id', sessionId);
+}
+var WS_URL = 'ws://' + location.host + '/ws?session_id=' + sessionId;
 let ws = null;
 let currentMode = 'pm';
-let reconnectTimer = null;
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 20;
 
 marked.setOptions({ breaks: true, gfm: true });
 
-function connect() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-  updateWsStatus('connecting');
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
+function _setupWs(socket) {
+  socket.onopen = function() {
+    reconnectAttempts = 0;
     updateWsStatus('connected');
-    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
   };
 
-  ws.onmessage = (event) => {
+  socket.onmessage = function(event) {
     removeTyping();
     appendMessage('ai', event.data);
   };
 
-  ws.onclose = () => {
+  socket.onclose = function(event) {
     updateWsStatus('disconnected');
-    if (!reconnectTimer) {
-      reconnectTimer = setInterval(() => {
-        updateWsStatus('connecting');
-        ws = new WebSocket(WS_URL);
-      }, 3000);
-    }
+    scheduleReconnect();
   };
 
-  ws.onerror = () => { updateWsStatus('disconnected'); };
+  socket.onerror = function() {
+    updateWsStatus('disconnected');
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectAttempts >= maxReconnectAttempts) {
+    document.getElementById('wsText').textContent = '重连失败，请刷新';
+    return;
+  }
+  var delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+  reconnectAttempts++;
+  document.getElementById('wsText').textContent = reconnectAttempts + '秒后重连...';
+  setTimeout(function() {
+    cleanupSocket();
+    updateWsStatus('connecting');
+    ws = new WebSocket(WS_URL);
+    _setupWs(ws);
+  }, delay);
+}
+
+function cleanupSocket() {
+  if (!ws) return;
+  ws.onopen = null;
+  ws.onmessage = null;
+  ws.onclose = null;
+  ws.onerror = null;
+  try {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(1000);
+    }
+  } catch(e) {}
+}
+
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  cleanupSocket();
+  updateWsStatus('connecting');
+  reconnectAttempts = 0;
+  ws = new WebSocket(WS_URL);
+  _setupWs(ws);
 }
 
 function updateWsStatus(status) {
-  const dot = document.getElementById('wsDot');
-  const text = document.getElementById('wsText');
+  var dot = document.getElementById('wsDot');
+  var text = document.getElementById('wsText');
   dot.classList.remove('connected');
   switch (status) {
     case 'connected':
@@ -371,12 +408,12 @@ function updateWsStatus(status) {
 }
 
 function sendMessage() {
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
+  var input = document.getElementById('msgInput');
+  var text = input.value.trim();
   if (!text) return;
 
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    appendMessage('ai', '⚠️ WebSocket 未连接，正在重连中，请稍候再试...');
+    appendMessage('ai', 'WebSocket 未连接，正在重连中，请稍候再试...');
     connect();
     return;
   }
@@ -398,8 +435,8 @@ function switchMode(mode) {
   document.getElementById('btn-pm').className = mode === 'pm' ? 'mode-btn active pm-mode' : 'mode-btn';
   document.getElementById('btn-dev').className = mode === 'dev' ? 'mode-btn active dev-mode' : 'mode-btn';
 
-  const badge = document.getElementById('headerBadge');
-  const title = document.getElementById('headerTitle');
+  var badge = document.getElementById('headerBadge');
+  var title = document.getElementById('headerTitle');
   if (mode === 'pm') {
     badge.textContent = 'PM'; badge.className = 'header-badge pm-mode';
     title.textContent = 'PM Mode · 产品定义';
@@ -415,8 +452,8 @@ function switchMode(mode) {
 }
 
 function createProject() {
-  const input = document.getElementById('projectInput');
-  const name = input.value.trim();
+  var input = document.getElementById('projectInput');
+  var name = input.value.trim();
   if (!name) return;
 
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -428,8 +465,8 @@ function createProject() {
 }
 
 function showTyping() {
-  const area = document.getElementById('chatArea');
-  const typing = document.createElement('div');
+  var area = document.getElementById('chatArea');
+  var typing = document.createElement('div');
   typing.className = 'typing-indicator';
   typing.id = 'typingIndicator';
   typing.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div> 老钱正在思考...';
@@ -438,18 +475,17 @@ function showTyping() {
 }
 
 function removeTyping() {
-  const typing = document.getElementById('typingIndicator');
+  var typing = document.getElementById('typingIndicator');
   if (typing) typing.remove();
 }
 
 function appendMessage(role, text) {
-  const area = document.getElementById('chatArea');
-  const div = document.createElement('div');
-  div.className = `message ${role}`;
-  div.innerHTML = `
-    <div class="message-avatar">${role === 'user' ? '🧑' : '💼'}</div>
-    <div class="message-body">${role === 'ai' ? renderContent(text) : escapeHtml(text)}</div>
-  `;
+  var area = document.getElementById('chatArea');
+  var div = document.createElement('div');
+  div.className = 'message ' + role;
+  div.innerHTML =
+    '<div class="message-avatar">' + (role === 'user' ? '🧑' : '💼') + '</div>' +
+    '<div class="message-body">' + (role === 'ai' ? renderContent(text) : escapeHtml(text)) + '</div>';
   area.appendChild(div);
   scrollBottom();
 
@@ -459,91 +495,80 @@ function appendMessage(role, text) {
 }
 
 function renderContent(text) {
-  if (text.includes('@startuml') && text.includes('@enduml')) {
+  if (text.indexOf('@startuml') !== -1 && text.indexOf('@enduml') !== -1) {
     return escapeHtml(text);
   }
   return marked.parse(text);
 }
 
 function renderUmlBlocks(container) {
-  const body = container.querySelector('.message-body');
-  const text = body.textContent;
-
-  const regex = /@startuml([\s\S]*?)@enduml/g;
-  const matches = [...text.matchAll(regex)];
+  var body = container.querySelector('.message-body');
+  var raw = body.textContent;
+  var regex = /@startuml([\s\S]*?)@enduml/g;
+  var matches = [];
+  var m;
+  while ((m = regex.exec(raw)) !== null) {
+    matches.push(m[0]);
+  }
   if (matches.length === 0) return;
 
-  const html = body.innerHTML;
-  let newHtml = html;
-  matches.forEach(match => {
-    const fullCode = match[0];
-    const encoded = encodePlantUml(fullCode);
-    const imgUrl = `https://www.plantuml.com/plantuml/svg/${encoded}`;
-    const escaped = escapeHtml(fullCode);
-    const umlBlock = `
-      <div class="uml-container">
-        <img src="${imgUrl}" alt="PlantUML Diagram" loading="lazy"
-             onerror="this.parentElement.querySelector('.uml-fallback').style.display='block';this.style.display='none'">
-        <pre class="uml-fallback" style="display:none">${escaped}</pre>
-        <div class="uml-actions">
-          <button onclick="copyUml(this, \`${escaped.replace(/`/g, '\\`')}\`)">📋 复制代码</button>
-          <button onclick="window.open('${imgUrl}', '_blank')">🔗 新窗口打开</button>
-        </div>
-      </div>`;
-    newHtml = newHtml.replace(new RegExp(escapedHtmlRegex(fullCode), 'g'), umlBlock);
+  var html = body.innerHTML;
+  matches.forEach(function(fullCode) {
+    var encoded = encodePlantUml(fullCode);
+    var imgUrl = 'https://www.plantuml.com/plantuml/svg/' + encoded;
+    var escaped = escapeHtml(fullCode);
+    var block =
+      '<div class="uml-container">' +
+      '<img src="' + imgUrl + '" alt="PlantUML Diagram" loading="lazy"' +
+      ' onerror="this.parentElement.querySelector(\'.uml-fallback\').style.display=\'block\';this.style.display=\'none\'">' +
+      '<pre class="uml-fallback" style="display:none">' + escaped + '</pre>' +
+      '<div class="uml-actions">' +
+      '<button onclick="copyUml(this)">📋 复制代码</button>' +
+      '<button onclick="window.open(\'' + imgUrl + '\', \'_blank\')">🔗 新窗口打开</button>' +
+      '</div></div>';
+    html = html.split(escapeHtml(fullCode)).join(block);
   });
 
-  body.innerHTML = newHtml;
-}
-
-function escapedHtmlRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  body.innerHTML = html;
 }
 
 function encodePlantUml(code) {
-  let encoded = '';
-  const utf8 = unescape(encodeURIComponent(code));
-  for (let i = 0; i < utf8.length; i++) {
-    const c = utf8.charCodeAt(i);
-    if (c >= 0x20 && c <= 0x7E) {
-      encoded += String.fromCharCode(c);
-    } else {
-      encoded += '\\u' + ('0000' + c.toString(16)).slice(-4);
-    }
-  }
-  return btoa(encoded).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(unescape(encodeURIComponent(code))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function copyUml(btn, code) {
-  const decoded = code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
-  navigator.clipboard.writeText(decoded).then(() => {
-    const orig = btn.textContent;
+function copyUml(btn) {
+  var container = btn.closest('.uml-container');
+  var fallback = container.querySelector('.uml-fallback');
+  if (!fallback) return;
+  var text = fallback.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
     btn.textContent = '✅ 已复制';
-    setTimeout(() => btn.textContent = orig, 1500);
+    setTimeout(function() { btn.textContent = orig; }, 1500);
   });
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
+  var div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
 function clearChat() {
-  const area = document.getElementById('chatArea');
-  area.innerHTML = `
-    <div class="message ai">
-      <div class="message-avatar">💼</div>
-      <div class="message-body">对话已清空。有什么新想法想聊？</div>
-    </div>`;
+  var area = document.getElementById('chatArea');
+  area.innerHTML =
+    '<div class="message ai">' +
+    '<div class="message-avatar">💼</div>' +
+    '<div class="message-body">对话已清空。有什么新想法想聊？</div>' +
+    '</div>';
 }
 
 function scrollBottom() {
-  const area = document.getElementById('chatArea');
-  requestAnimationFrame(() => { area.scrollTop = area.scrollHeight; });
+  var area = document.getElementById('chatArea');
+  requestAnimationFrame(function() { area.scrollTop = area.scrollHeight; });
 }
 
-document.getElementById('msgInput').addEventListener('input', () => {
+document.getElementById('msgInput').addEventListener('input', function() {
   document.getElementById('sendBtn').disabled = false;
 });
 
