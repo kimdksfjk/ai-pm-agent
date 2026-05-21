@@ -174,21 +174,22 @@ body {
   border-radius: 4px; font-size: 0.9em;
 }
 
-.uml-container { margin: 12px 0; text-align: center; }
-.uml-container img {
-  max-width: 100%; border-radius: 8px; border: 1px solid var(--border);
-  background: #fff; padding: 12px;
+.uml-code {
+  border: 1px solid #3b82f6 !important;
+  border-left: 3px solid #3b82f6 !important;
 }
 
-.uml-actions {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px;
+.copy-uml-btn {
+  margin-top: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
-.uml-actions button {
-  padding: 4px 10px; font-size: 11px; background: transparent;
-  border: 1px solid var(--border); border-radius: 4px;
-  color: var(--text-secondary); cursor: pointer;
-}
-.uml-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.copy-uml-btn:hover { background: var(--accent-hover); }
 
 .input-area {
   padding: 16px 20px; border-top: 1px solid var(--border);
@@ -332,17 +333,14 @@ function _setupWs(socket) {
     reconnectAttempts = 0;
     updateWsStatus('connected');
   };
-
   socket.onmessage = function(event) {
     removeTyping();
     appendMessage('ai', event.data);
   };
-
   socket.onclose = function(event) {
     updateWsStatus('disconnected');
     scheduleReconnect();
   };
-
   socket.onerror = function() {
     updateWsStatus('disconnected');
   };
@@ -411,13 +409,11 @@ function sendMessage() {
   var input = document.getElementById('msgInput');
   var text = input.value.trim();
   if (!text) return;
-
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     appendMessage('ai', 'WebSocket 未连接，正在重连中，请稍候再试...');
     connect();
     return;
   }
-
   appendMessage('user', text);
   showTyping();
   ws.send(text);
@@ -434,7 +430,6 @@ function switchMode(mode) {
   currentMode = mode;
   document.getElementById('btn-pm').className = mode === 'pm' ? 'mode-btn active pm-mode' : 'mode-btn';
   document.getElementById('btn-dev').className = mode === 'dev' ? 'mode-btn active dev-mode' : 'mode-btn';
-
   var badge = document.getElementById('headerBadge');
   var title = document.getElementById('headerTitle');
   if (mode === 'pm') {
@@ -444,7 +439,6 @@ function switchMode(mode) {
     badge.textContent = 'DEV'; badge.className = 'header-badge dev-mode';
     title.textContent = 'Dev Mode · 开发沟通';
   }
-
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send('/' + mode);
     showTyping();
@@ -455,7 +449,6 @@ function createProject() {
   var input = document.getElementById('projectInput');
   var name = input.value.trim();
   if (!name) return;
-
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send('/project ' + name);
     showTyping();
@@ -483,69 +476,63 @@ function appendMessage(role, text) {
   var area = document.getElementById('chatArea');
   var div = document.createElement('div');
   div.className = 'message ' + role;
+  var contentHtml = role === 'ai' ? renderContent(text) : escapeHtml(text);
   div.innerHTML =
     '<div class="message-avatar">' + (role === 'user' ? '🧑' : '💼') + '</div>' +
-    '<div class="message-body">' + (role === 'ai' ? renderContent(text) : escapeHtml(text)) + '</div>';
+    '<div class="message-body">' + contentHtml + '</div>';
   area.appendChild(div);
   scrollBottom();
 
   if (role === 'ai') {
-    renderUmlBlocks(div);
+    var preBlocks = div.querySelectorAll('pre.uml-code');
+    for (var i = 0; i < preBlocks.length; i++) {
+      var btn = document.createElement('button');
+      btn.className = 'copy-uml-btn';
+      btn.textContent = '📋 复制 PlantUML';
+      btn.onclick = function() {
+        var code = this.previousElementSibling.textContent;
+        navigator.clipboard.writeText(code).then(function() {
+          this.textContent = '✅ 已复制';
+          setTimeout(function() { this.textContent = '📋 复制 PlantUML'; }.bind(this), 1500);
+        }.bind(this));
+      };
+      preBlocks[i].parentNode.insertBefore(btn, preBlocks[i].nextSibling);
+    }
   }
 }
 
 function renderContent(text) {
   if (text.indexOf('@startuml') !== -1 && text.indexOf('@enduml') !== -1) {
-    return escapeHtml(text);
+    return formatWithUml(text);
   }
   return marked.parse(text);
 }
 
-function renderUmlBlocks(container) {
-  var body = container.querySelector('.message-body');
-  var raw = body.textContent;
+function formatWithUml(text) {
+  var parts = [];
   var regex = /@startuml([\s\S]*?)@enduml/g;
-  var matches = [];
-  var m;
-  while ((m = regex.exec(raw)) !== null) {
-    matches.push(m[0]);
+  var lastIdx = 0;
+  var match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push({ t: text.slice(lastIdx, match.index), u: false });
+    }
+    parts.push({ t: match[0], u: true });
+    lastIdx = match.index + match[0].length;
   }
-  if (matches.length === 0) return;
+  if (lastIdx < text.length) {
+    parts.push({ t: text.slice(lastIdx), u: false });
+  }
 
-  var html = body.innerHTML;
-  matches.forEach(function(fullCode) {
-    var encoded = encodePlantUml(fullCode);
-    var imgUrl = 'https://www.plantuml.com/plantuml/svg/' + encoded;
-    var escaped = escapeHtml(fullCode);
-    var block =
-      '<div class="uml-container">' +
-      '<img src="' + imgUrl + '" alt="PlantUML Diagram" loading="lazy"' +
-      ' onerror="this.parentElement.querySelector(\'.uml-fallback\').style.display=\'block\';this.style.display=\'none\'">' +
-      '<pre class="uml-fallback" style="display:none">' + escaped + '</pre>' +
-      '<div class="uml-actions">' +
-      '<button onclick="copyUml(this)">📋 复制代码</button>' +
-      '<button onclick="window.open(\'' + imgUrl + '\', \'_blank\')">🔗 新窗口打开</button>' +
-      '</div></div>';
-    html = html.split(escapeHtml(fullCode)).join(block);
-  });
-
-  body.innerHTML = html;
-}
-
-function encodePlantUml(code) {
-  return btoa(unescape(encodeURIComponent(code))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function copyUml(btn) {
-  var container = btn.closest('.uml-container');
-  var fallback = container.querySelector('.uml-fallback');
-  if (!fallback) return;
-  var text = fallback.textContent;
-  navigator.clipboard.writeText(text).then(function() {
-    var orig = btn.textContent;
-    btn.textContent = '✅ 已复制';
-    setTimeout(function() { btn.textContent = orig; }, 1500);
-  });
+  var result = '';
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i].u) {
+      result += '<pre class="uml-code"><code>' + escapeHtml(parts[i].t) + '</code></pre>';
+    } else if (parts[i].t.trim()) {
+      result += marked.parse(parts[i].t);
+    }
+  }
+  return result;
 }
 
 function escapeHtml(text) {

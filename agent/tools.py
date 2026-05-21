@@ -48,46 +48,88 @@ def generate_use_case_diagram(
     title: str = "系统用例图"
 ) -> str:
     """
-    生成 PlantUML 用例图代码。
+    生成 PlantUML 用例图代码。会在图中自动从左到右排列角色和用例。
 
     Args:
-        actors: 角色列表，格式: "角色名1,角色名2"，如 "普通用户,管理员"
-        use_cases: 用例列表，格式: "用例名1,用例名2"，如 "注册账号,发布内容,审核内容"
-        relations: 关系描述，格式: "角色--用例,角色--用例"，如 "普通用户--注册账号,管理员--审核内容"
+        actors: 角色列表，用逗号分隔。如 "普通用户,管理员"
+        use_cases: 用例列表，用逗号分隔。如 "注册账号,发布内容,审核内容"
+        relations: 关系描述，每个关系用逗号分隔。
+            基本格式: "角色名--用例名"
+            带标签格式: "角色名--用例名:标签文字"
+            extend 关系: "用例A..>用例B:<<extend>>"
+            示例: "普通用户--注册账号,普通用户--发布内容,管理员--审核内容"
         title: 图表标题
     """
     actor_list = [a.strip() for a in actors.split(",") if a.strip()]
     uc_list = [u.strip() for u in use_cases.split(",") if u.strip()]
 
-    lines = ["@startuml", f"title {title}", "", "left to right direction", ""]
+    name_to_alias = {}
+    lines = [
+        "@startuml",
+        f"title {title}",
+        "",
+        "left to right direction",
+        "",
+    ]
 
-    for actor in actor_list:
-        safe_actor = actor.replace(" ", "_")
-        lines.append(f"actor \"{actor}\" as {safe_actor}")
+    for i, a in enumerate(actor_list):
+        alias = f"A{i+1}"
+        name_to_alias[a] = alias
+        lines.append(f'actor "{a}" as {alias}')
 
     lines.append("")
 
     for i, uc in enumerate(uc_list):
-        safe_uc = f"UC{i+1}"
-        lines.append(f"usecase \"{uc}\" as {safe_uc}")
+        alias = f"UC{i+1}"
+        name_to_alias[uc] = alias
+        lines.append(f'usecase "{uc}" as {alias}')
 
     lines.append("")
 
     if relations:
         for rel in relations.split(","):
             rel = rel.strip()
-            if "--" in rel:
-                parts = rel.split("--")
-                if len(parts) == 2:
-                    src = parts[0].strip().replace(" ", "_")
-                    tgt = parts[1].strip().replace(" ", "_")
-                    lines.append(f"{src} --> {tgt}")
-            elif "..>" in rel:
-                parts = rel.split("..>")
-                if len(parts) == 2:
-                    src = parts[0].strip().replace(" ", "_")
-                    tgt = parts[1].strip().replace(" ", "_")
-                    lines.append(f"{src} ..> {tgt} : <<extend>>")
+            if not rel:
+                continue
+
+            label = ""
+            arrow_part = rel
+
+            if ":" in rel:
+                last_colon = rel.rfind(":")
+                arrow_part = rel[:last_colon].strip()
+                label = rel[last_colon + 1:].strip()
+            else:
+                arrow_part = rel
+                label = ""
+
+            arrow_part = arrow_part.replace(" ", "")
+
+            if "..>" in arrow_part:
+                parts = arrow_part.split("..>", 1)
+                arrow = "..>"
+            elif "--" in arrow_part:
+                parts = arrow_part.split("--", 1)
+                arrow = "-->"
+            elif "->" in arrow_part:
+                parts = arrow_part.split("->", 1)
+                arrow = "-->"
+            else:
+                continue
+
+            if len(parts) != 2:
+                continue
+
+            src_name = parts[0].strip()
+            tgt_name = parts[1].strip()
+
+            src_alias = name_to_alias.get(src_name, src_name)
+            tgt_alias = name_to_alias.get(tgt_name, tgt_name)
+
+            if label:
+                lines.append(f"{src_alias} {arrow} {tgt_alias} : {label}")
+            else:
+                lines.append(f"{src_alias} {arrow} {tgt_alias}")
 
     lines.append("")
     lines.append("@enduml")
@@ -101,12 +143,13 @@ def generate_activity_diagram(
     decision_points: str = ""
 ) -> str:
     """
-    生成 PlantUML 活动图（流程图）代码。
+    生成 PlantUML 活动图（流程图）代码。使用新版语法。
 
     Args:
-        steps: 流程步骤，用逗号分隔，如 "用户登录,浏览商品,加入购物车,提交订单,支付"
+        steps: 流程步骤，用逗号分隔。如 "用户登录,浏览商品,加入购物车,提交订单,支付"
         title: 图表标题
-        decision_points: 判断节点描述，格式: "步骤名:条件1->分支1,条件2->分支2"
+        decision_points: 判断节点描述，格式: "步骤名:条件1->结果1,条件2->结果2"
+            多个判断用分号分隔。
             如 "支付:成功->订单确认,失败->重新支付"
     """
     step_list = [s.strip() for s in steps.split(",") if s.strip()]
@@ -128,12 +171,10 @@ def generate_activity_diagram(
     for step in step_list:
         if step in decision_map:
             lines.append(f":{step};")
-            branches = decision_map[step]
-            cond_items = list(branches.items())
             lines.append("switch ()")
-            for i, (cond, target) in enumerate(cond_items):
-                prefix = "case" if i == 0 else "case"
-                lines.append(f"{prefix} ( {cond} )")
+            branches = decision_map[step]
+            for cond, target in branches.items():
+                lines.append(f"case ( {cond} )")
                 lines.append(f"  :{target};")
             lines.append("endswitch")
         else:
